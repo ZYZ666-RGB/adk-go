@@ -117,3 +117,52 @@ func TestBasicRequestProcessor_OutputSchemaPerMode(t *testing.T) {
 		})
 	}
 }
+
+// TestBasicRequestProcessor_OutputSchemaIsolation pins that the
+// ResponseSchema handed to a request is a deep copy of the agent's
+// OutputSchema. A BeforeModel callback may mutate the request schema (for
+// example to change a property type); that mutation must not leak back into
+// the agent's OutputSchema or into another request's schema.
+func TestBasicRequestProcessor_OutputSchemaIsolation(t *testing.T) {
+	t.Parallel()
+
+	schema := &genai.Schema{
+		Type:       genai.TypeObject,
+		Properties: map[string]*genai.Schema{"answer": {Type: genai.TypeString}},
+	}
+
+	mockAgent, err := agent.New(agent.Config{Name: "testAgent"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	mock := &mockLLMAgent{
+		Agent: mockAgent,
+		s: &State{
+			Mode:         ModeSingleTurn,
+			Model:        &mockLLM{name: "m"},
+			OutputSchema: schema,
+		},
+	}
+	ctx := icontext.NewInvocationContext(t.Context(), icontext.InvocationContextParams{Agent: mock})
+
+	requests := []*model.LLMRequest{{}, {}}
+	for _, req := range requests {
+		for ev, err := range basicRequestProcessor(ctx, req, &Flow{}) {
+			if ev != nil {
+				t.Fatalf("basicRequestProcessor unexpectedly yielded an event: %+v", ev)
+			}
+			if err != nil {
+				t.Fatalf("basicRequestProcessor failed: %v", err)
+			}
+		}
+	}
+
+	// A BeforeModel callback can perform this same request mutation.
+	requests[0].Config.ResponseSchema.Properties["answer"].Type = genai.TypeNumber
+	if got := schema.Properties["answer"].Type; got != genai.TypeString {
+		t.Errorf("request mutation changed the agent's OutputSchema: got %v, want %v", got, genai.TypeString)
+	}
+	if got := requests[1].Config.ResponseSchema.Properties["answer"].Type; got != genai.TypeString {
+		t.Errorf("request mutation changed another request's schema: got %v, want %v", got, genai.TypeString)
+	}
+}

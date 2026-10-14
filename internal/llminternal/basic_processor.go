@@ -51,7 +51,7 @@ func basicRequestProcessor(ctx agent.InvocationContext, req *model.LLMRequest, f
 		// declaration (the model emits the value inside the finish_task
 		// FC args, not as a structured text response).
 		if state.Mode != ModeTask && state.OutputSchema != nil && !needOutputSchemaProcessor(state) {
-			req.Config.ResponseSchema = state.OutputSchema
+			req.Config.ResponseSchema = clone(state.OutputSchema)
 			req.Config.ResponseMIMEType = "application/json"
 		}
 
